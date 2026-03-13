@@ -47,6 +47,16 @@ const normalizeLine = (line: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const isInlineExplanationHeading = (line: string) =>
+  normalizeHeading(line) === "explications";
+
+const isOptionLine = (line: string) => /(^|\s)[A-E]\.\s+/i.test(line);
+
+const toOptionText = (line: string) => {
+  const match = line.match(/(?:^|\s)([A-E]\.\s+.*)$/i);
+  return (match?.[1] ?? line).trim();
+};
+
 const normalizeForMatch = (text: string) => normalizeHeading(text);
 
 const toComparableWords = (text: string) =>
@@ -72,6 +82,91 @@ const parseOptionLabel = (line: string) => {
   }
 
   return "";
+};
+
+const parseOptionsWithInlineExplanations = (
+  block: string[],
+  startIndex: number,
+) => {
+  const options: string[] = [];
+  const correctIndices: number[] = [];
+  const optionExplanations: Record<number, string> = {};
+  let markNextAsCorrect = false;
+
+  for (let i = startIndex; i < block.length; i += 1) {
+    const line = block[i];
+
+    if (isStopHeading(line) || isQuestionHeader(line)) {
+      break;
+    }
+
+    if (isCorrectMarker(line)) {
+      markNextAsCorrect = true;
+      continue;
+    }
+
+    if (isIncorrectMarker(line)) {
+      markNextAsCorrect = false;
+      continue;
+    }
+
+    if (isLinkOrImage(line) || line.startsWith("via -")) {
+      continue;
+    }
+
+    if (!isOptionLine(line)) {
+      continue;
+    }
+
+    const optionText = toOptionText(line);
+    options.push(optionText);
+    const currentOptionIndex = options.length - 1;
+
+    if (markNextAsCorrect) {
+      correctIndices.push(currentOptionIndex);
+      markNextAsCorrect = false;
+    }
+
+    let j = i + 1;
+    if (j < block.length && isInlineExplanationHeading(block[j])) {
+      j += 1;
+    }
+
+    const explanationLines: string[] = [];
+
+    while (j < block.length) {
+      const nextLine = block[j];
+
+      if (
+        isStopHeading(nextLine) ||
+        isQuestionHeader(nextLine) ||
+        isCorrectMarker(nextLine) ||
+        isIncorrectMarker(nextLine) ||
+        isOptionLine(nextLine)
+      ) {
+        break;
+      }
+
+      if (isInlineExplanationHeading(nextLine)) {
+        j += 1;
+        continue;
+      }
+
+      if (!isLinkOrImage(nextLine) && !nextLine.startsWith("via -")) {
+        explanationLines.push(nextLine);
+      }
+
+      j += 1;
+    }
+
+    if (explanationLines.length > 0) {
+      optionExplanations[currentOptionIndex] = explanationLines.join(" ");
+    }
+
+    i = j - 1;
+  }
+
+  return { options, correctIndices, optionExplanations };
 };
 
 const extractOptionsFromAnswerSections = (lines: string[]) => {
@@ -389,29 +484,42 @@ export const parseMarkdownQuiz = (
 
     let options: string[] = [];
     let correctIndices: number[] = [];
-    let markNextAsCorrect = false;
+    let inlineOptionExplanations: Record<number, string> = {};
 
-    for (let i = cursor; i < block.length; i += 1) {
-      const line = block[i];
-      if (isStopHeading(line) || isQuestionHeader(line)) {
-        break;
-      }
-      if (isCorrectMarker(line)) {
-        markNextAsCorrect = true;
-        continue;
-      }
-      if (isIncorrectMarker(line)) {
-        markNextAsCorrect = false;
-        continue;
-      }
-      if (isLinkOrImage(line) || line.startsWith("via -")) {
-        continue;
-      }
+    const hasInlineOptionExplanationFormat = block.some(
+      isInlineExplanationHeading,
+    );
 
-      options.push(line);
-      if (markNextAsCorrect) {
-        correctIndices.push(options.length - 1);
-        markNextAsCorrect = false;
+    if (hasInlineOptionExplanationFormat) {
+      const parsedInline = parseOptionsWithInlineExplanations(block, cursor);
+      options = parsedInline.options;
+      correctIndices = parsedInline.correctIndices;
+      inlineOptionExplanations = parsedInline.optionExplanations;
+    } else {
+      let markNextAsCorrect = false;
+
+      for (let i = cursor; i < block.length; i += 1) {
+        const line = block[i];
+        if (isStopHeading(line) || isQuestionHeader(line)) {
+          break;
+        }
+        if (isCorrectMarker(line)) {
+          markNextAsCorrect = true;
+          continue;
+        }
+        if (isIncorrectMarker(line)) {
+          markNextAsCorrect = false;
+          continue;
+        }
+        if (isLinkOrImage(line) || line.startsWith("via -")) {
+          continue;
+        }
+
+        options.push(line);
+        if (markNextAsCorrect) {
+          correctIndices.push(options.length - 1);
+          markNextAsCorrect = false;
+        }
       }
     }
 
@@ -429,11 +537,26 @@ export const parseMarkdownQuiz = (
 
     const domain = extractDomain(block, fallbackDomain);
     const explanation = extractExplanation(block);
-    const incorrectOptionExplanations = extractIncorrectOptionExplanations(
+    const parsedIncorrectOptionExplanations = extractIncorrectOptionExplanations(
       block,
       options,
       correctIndices,
     );
+
+    const inlineIncorrectOptionExplanations = Object.entries(
+      inlineOptionExplanations,
+    ).reduce<Record<number, string>>((acc, [index, value]) => {
+      const optionIndex = Number(index);
+      if (!correctIndices.includes(optionIndex)) {
+        acc[optionIndex] = value;
+      }
+      return acc;
+    }, {});
+
+    const incorrectOptionExplanations =
+      Object.keys(parsedIncorrectOptionExplanations).length > 0
+        ? parsedIncorrectOptionExplanations
+        : inlineIncorrectOptionExplanations;
 
     parsedQuestions.push({
       id: parsedQuestions.length + 1,
