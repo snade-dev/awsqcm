@@ -102,7 +102,7 @@ export function UploadView({ onBack, onAddQuizzes }: UploadViewProps) {
         body: JSON.stringify({ files: filePayload }),
       });
 
-      const uploadResult = (await uploadResponse.json()) as {
+      type UploadApiResult = {
         message?: string;
         savedFiles?: Array<{
           name: string;
@@ -110,9 +110,39 @@ export function UploadView({ onBack, onAddQuizzes }: UploadViewProps) {
         }>;
       };
 
+      let uploadResult: UploadApiResult | null = null;
+      const contentType = uploadResponse.headers.get("content-type") ?? "";
+      const isJsonResponse = contentType
+        .toLowerCase()
+        .includes("application/json");
+
+      if (isJsonResponse) {
+        uploadResult = (await uploadResponse.json()) as UploadApiResult;
+      } else {
+        const responsePreview = (await uploadResponse.text()).slice(0, 200);
+        console.error("Unexpected upload API response", {
+          status: uploadResponse.status,
+          responsePreview,
+        });
+      }
+
       if (!uploadResponse.ok) {
+        const defaultErrorMessage =
+          uploadResponse.status === 413
+            ? "Le fichier est trop volumineux pour l'import. Essayez de réduire le nombre de fichiers sélectionnés."
+            : "L'enregistrement dans src/data a échoué.";
+
         throw new Error(
-          uploadResult.message ?? "L'enregistrement dans src/data a échoué.",
+          uploadResult?.message ??
+            (isJsonResponse
+              ? defaultErrorMessage
+              : `${defaultErrorMessage} Réponse serveur invalide.`),
+        );
+      }
+
+      if (!uploadResult) {
+        throw new Error(
+          "Le serveur a renvoyé une réponse invalide (HTML au lieu de JSON). Vérifiez que le backend est bien démarré.",
         );
       }
 

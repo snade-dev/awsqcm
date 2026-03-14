@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { quizzes as initialQuizzes, type QuizDefinition } from "./data/quizzes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,15 +14,34 @@ import {
   BookOpen,
   Trophy,
   AlertCircle,
-  FileUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ModeToggle } from "@/components/mode-toggle";
-import { UploadView } from "@/components/UploadView";
 import { buildMarkdownQuizDefinition } from "@/data/markdown-quiz";
 
 type QuizMode = "training" | "exam";
 const EXAM_DURATION_SECONDS = 90 * 60;
+
+const markdownFileContents = import.meta.glob("./data/*.md", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+const markdownQuizzes: QuizDefinition[] = Object.entries(markdownFileContents)
+  .map(([filePath, content]) => {
+    const fileName = filePath.split("/").pop() ?? filePath;
+    return buildMarkdownQuizDefinition(fileName, content);
+  })
+  .filter((quiz) => quiz.questions.length > 0);
+
+const quizzesFromDataDir: QuizDefinition[] = (() => {
+  const mergedQuizzes = new Map(initialQuizzes.map((quiz) => [quiz.id, quiz]));
+  markdownQuizzes.forEach((quiz) => {
+    mergedQuizzes.set(quiz.id, quiz);
+  });
+  return Array.from(mergedQuizzes.values());
+})();
 
 function App() {
   const [selectedQuizId, setSelectedQuizId] = useState<string | null>(null);
@@ -47,9 +66,7 @@ function App() {
   const [quizCompleted, setQuizCompleted] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState(EXAM_DURATION_SECONDS);
 
-  const [quizzesList, setQuizzesList] =
-    useState<QuizDefinition[]>(initialQuizzes);
-  const [isUploadPage, setIsUploadPage] = useState(false);
+  const quizzesList = quizzesFromDataDir;
 
   const activeQuiz = useMemo(
     () => quizzesList.find((quiz) => quiz.id === selectedQuizId) ?? null,
@@ -59,51 +76,6 @@ function App() {
     () => activeQuiz?.questions ?? [],
     [activeQuiz],
   );
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadMarkdownQuizzes = async () => {
-      try {
-        const response = await fetch("/api/markdown-files");
-        if (!response.ok) {
-          return;
-        }
-
-        const payload = (await response.json()) as {
-          files?: Array<{
-            name: string;
-            content: string;
-          }>;
-        };
-
-        if (!isMounted) {
-          return;
-        }
-
-        const markdownQuizzes = (payload.files ?? [])
-          .map((file) => buildMarkdownQuizDefinition(file.name, file.content))
-          .filter((quiz) => quiz.questions.length > 0);
-
-        setQuizzesList((prev) => {
-          const mergedQuizzes = new Map(prev.map((quiz) => [quiz.id, quiz]));
-          markdownQuizzes.forEach((quiz) => {
-            mergedQuizzes.set(quiz.id, quiz);
-          });
-
-          return Array.from(mergedQuizzes.values());
-        });
-      } catch {
-        return;
-      }
-    };
-
-    void loadMarkdownQuizzes();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   const formatTime = (totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600)
@@ -189,27 +161,6 @@ function App() {
     resetQuizProgress();
   };
 
-  const handleAddQuizzes = useCallback((newQuizzes: QuizDefinition[]) => {
-    setQuizzesList((prev) => {
-      const mergedQuizzes = new Map(prev.map((quiz) => [quiz.id, quiz]));
-      newQuizzes.forEach((quiz) => {
-        mergedQuizzes.set(quiz.id, quiz);
-      });
-
-      return Array.from(mergedQuizzes.values());
-    });
-    setIsUploadPage(false);
-  }, []);
-
-  if (isUploadPage) {
-    return (
-      <UploadView
-        onBack={() => setIsUploadPage(false)}
-        onAddQuizzes={handleAddQuizzes}
-      />
-    );
-  }
-
   if (!activeQuiz) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100/80 dark:from-slate-950 dark:via-slate-950 dark:to-slate-900 p-4 md:p-8">
@@ -219,24 +170,13 @@ function App() {
         <div className="max-w-5xl mx-auto space-y-5">
           <Card className="border border-slate-200 dark:border-slate-800/80 shadow-2xl shadow-slate-200/50">
             <CardHeader className="pb-2">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <CardTitle className="text-2xl md:text-3xl font-bold text-slate-800 dark:text-slate-100">
-                    Choisissez un quiz à lancer
-                  </CardTitle>
-                  <p className="text-sm md:text-base text-slate-600 dark:text-slate-300 mt-2">
-                    Sélectionnez un quiz puis le mode adapté : entraînement
-                    guidé ou examen chronométré.
-                  </p>
-                </div>
-                <Button
-                  onClick={() => setIsUploadPage(true)}
-                  className="flex items-center gap-2 w-full md:w-auto"
-                >
-                  <FileUp className="w-4 h-4" />
-                  Importer un quiz
-                </Button>
-              </div>
+              <CardTitle className="text-2xl md:text-3xl font-bold text-slate-800 dark:text-slate-100">
+                Choisissez un quiz à lancer
+              </CardTitle>
+              <p className="text-sm md:text-base text-slate-600 dark:text-slate-300 mt-2">
+                Sélectionnez un quiz puis le mode adapté : entraînement guidé ou
+                examen chronométré. Les quiz sont chargés depuis src/data.
+              </p>
             </CardHeader>
             <CardContent className="space-y-4 pb-6 mt-4">
               {quizzesList.map((quiz) => (
