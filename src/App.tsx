@@ -22,7 +22,7 @@ import { buildMarkdownQuizDefinition } from "@/data/markdown-quiz";
 type QuizMode = "training" | "exam";
 const EXAM_DURATION_SECONDS = 90 * 60;
 
-const markdownFileContents = import.meta.glob("./data/*.md", {
+const markdownFileContents = import.meta.glob("./data/**/*.md", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -30,8 +30,15 @@ const markdownFileContents = import.meta.glob("./data/*.md", {
 
 const markdownQuizzes: QuizDefinition[] = Object.entries(markdownFileContents)
   .map(([filePath, content]) => {
-    const fileName = filePath.split("/").pop() ?? filePath;
-    return buildMarkdownQuizDefinition(fileName, content);
+    const parts = filePath.split("/");
+    const fileName = parts.pop() ?? filePath;
+    const folder = parts.length > 2 ? parts.slice(2).join("/") : undefined;
+
+    const quiz = buildMarkdownQuizDefinition(fileName, content);
+    if (folder) {
+      quiz.folder = folder;
+    }
+    return quiz;
   })
   .filter((quiz) => quiz.questions.length > 0);
 
@@ -76,6 +83,20 @@ function App() {
     () => activeQuiz?.questions ?? [],
     [activeQuiz],
   );
+
+  const quizzesByFolder = useMemo(() => {
+    const groups: Record<string, QuizDefinition[]> = {
+      Défaut: [],
+    };
+    quizzesList.forEach((quiz) => {
+      const f = quiz.folder || "Défaut";
+      if (!groups[f]) {
+        groups[f] = [];
+      }
+      groups[f].push(quiz);
+    });
+    return groups;
+  }, [quizzesList]);
 
   const formatTime = (totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600)
@@ -178,43 +199,63 @@ function App() {
                 examen chronométré. Les quiz sont chargés depuis src/data.
               </p>
             </CardHeader>
-            <CardContent className="space-y-4 pb-6 mt-4">
-              {quizzesList.map((quiz) => (
-                <Card
-                  key={quiz.id}
-                  className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 shadow-sm transition-all duration-200 hover:shadow-md hover:border-slate-300"
-                >
-                  <CardContent className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <div className="min-w-0 space-y-1">
-                      <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 break-words">
-                        {quiz.title}
-                      </h3>
-                      <p className="text-sm text-slate-600 dark:text-slate-300 break-words">
-                        {quiz.description}
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        {quiz.questions.length} questions détectées
-                      </p>
+            <CardContent className="space-y-6 pb-6 mt-4">
+              {Object.entries(quizzesByFolder).map(
+                ([folder, quizzes]) =>
+                  quizzes.length > 0 && (
+                    <div key={folder} className="space-y-4">
+                      {folder !== "Défaut" ? (
+                        <h2 className="text-xl font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2 mt-4 first:mt-0">
+                          {folder}
+                        </h2>
+                      ) : (
+                        Object.keys(quizzesByFolder).length > 1 && (
+                          <h2 className="text-xl font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2 mt-4 first:mt-0">
+                            Autres Quiz
+                          </h2>
+                        )
+                      )}
+                      <div className="space-y-4">
+                        {quizzes.map((quiz) => (
+                          <Card
+                            key={quiz.id}
+                            className="border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 shadow-sm transition-all duration-200 hover:shadow-md hover:border-slate-300"
+                          >
+                            <CardContent className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                              <div className="min-w-0 space-y-1">
+                                <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 break-words">
+                                  {quiz.title}
+                                </h3>
+                                <p className="text-sm text-slate-600 dark:text-slate-300 break-words">
+                                  {quiz.description}
+                                </p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                  {quiz.questions.length} questions détectées
+                                </p>
+                              </div>
+                              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                                <Button
+                                  onClick={() => startQuiz(quiz.id, "training")}
+                                  disabled={quiz.questions.length === 0}
+                                  className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                                >
+                                  Entraînement
+                                </Button>
+                                <Button
+                                  onClick={() => startQuiz(quiz.id, "exam")}
+                                  disabled={quiz.questions.length === 0}
+                                  variant="outline"
+                                >
+                                  Examen
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                      <Button
-                        onClick={() => startQuiz(quiz.id, "training")}
-                        disabled={quiz.questions.length === 0}
-                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                      >
-                        Entraînement
-                      </Button>
-                      <Button
-                        onClick={() => startQuiz(quiz.id, "exam")}
-                        disabled={quiz.questions.length === 0}
-                        variant="outline"
-                      >
-                        Examen
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                  ),
+              )}
             </CardContent>
           </Card>
         </div>

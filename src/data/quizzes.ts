@@ -4,6 +4,7 @@ export interface QuizDefinition {
   id: string;
   title: string;
   description: string;
+  folder?: string;
   questions: typeof baseQuestions;
 }
 export const quizzes: QuizDefinition[] = [
