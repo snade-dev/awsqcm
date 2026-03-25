@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   CheckCircle2,
   XCircle,
   RotateCcw,
@@ -97,6 +98,25 @@ function App() {
     });
     return groups;
   }, [quizzesList]);
+
+  const [collapsedFolders, setCollapsedFolders] = useState<
+    Record<string, boolean>
+  >(() => {
+    // Collapse all folders except "Défaut" by default
+    const initialCollapsedState: Record<string, boolean> = {};
+    const folders = new Set(quizzesList.map((q) => q.folder || "Défaut"));
+    folders.forEach((folder) => {
+      initialCollapsedState[folder] = folder !== "Défaut";
+    });
+    return initialCollapsedState;
+  });
+
+  const toggleFolder = (folder: string) => {
+    setCollapsedFolders((prev) => ({
+      ...prev,
+      [folder]: !prev[folder],
+    }));
+  };
 
   const formatTime = (totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600)
@@ -200,21 +220,40 @@ function App() {
               </p>
             </CardHeader>
             <CardContent className="space-y-6 pb-6 mt-4">
-              {Object.entries(quizzesByFolder).map(
-                ([folder, quizzes]) =>
-                  quizzes.length > 0 && (
-                    <div key={folder} className="space-y-4">
-                      {folder !== "Défaut" ? (
-                        <h2 className="text-xl font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2 mt-4 first:mt-0">
-                          {folder}
-                        </h2>
-                      ) : (
-                        Object.keys(quizzesByFolder).length > 1 && (
-                          <h2 className="text-xl font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2 mt-4 first:mt-0">
-                            Autres Quiz
-                          </h2>
-                        )
-                      )}
+              {Object.entries(quizzesByFolder).map(([folder, quizzes]) => {
+                if (quizzes.length === 0) return null;
+                const isCollapsed = collapsedFolders[folder];
+                return (
+                  <div key={folder} className="space-y-4">
+                    {folder !== "Défaut" ? (
+                      <button
+                        onClick={() => toggleFolder(folder)}
+                        className="flex items-center gap-2 w-full text-left text-xl font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2 mt-4 first:mt-0 hover:text-slate-900 dark:hover:text-white transition-colors"
+                      >
+                        {isCollapsed ? (
+                          <ChevronRight className="w-5 h-5 transition-transform" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 transition-transform" />
+                        )}
+                        {folder}
+                      </button>
+                    ) : (
+                      Object.keys(quizzesByFolder).length > 1 && (
+                        <button
+                          onClick={() => toggleFolder(folder)}
+                          className="flex items-center gap-2 w-full text-left text-xl font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-2 mt-4 first:mt-0 hover:text-slate-900 dark:hover:text-white transition-colors"
+                        >
+                          {isCollapsed ? (
+                            <ChevronRight className="w-5 h-5 transition-transform" />
+                          ) : (
+                            <ChevronDown className="w-5 h-5 transition-transform" />
+                          )}
+                          Autres Quiz
+                        </button>
+                      )
+                    )}
+
+                    {!isCollapsed && (
                       <div className="space-y-4">
                         {quizzes.map((quiz) => (
                           <Card
@@ -253,9 +292,10 @@ function App() {
                           </Card>
                         ))}
                       </div>
-                    </div>
-                  ),
-              )}
+                    )}
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
         </div>
